@@ -85,9 +85,9 @@ func main() {
 	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
 		twiml := `<?xml version="1.0" encoding="UTF-8"?>
 		<Response>
-			<Connect>
+			<Start>
 				<Stream url="wss://91.98.141.13/stream"/>
-			</Connect>
+			</Start>
 		</Response>`
 		w.Header().Set("Content-Type", "text/xml")
 		fmt.Fprint(w, twiml)
