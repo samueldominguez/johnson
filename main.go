@@ -41,7 +41,7 @@ func main() {
 	// WebSocket handler
 	http.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("stream started")
-		log.Println("headers:", header)
+		log.Println("headers:", r.Header)
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println("WebSocket upgrade error:", err)
