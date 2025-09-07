@@ -83,13 +83,19 @@ func main() {
 		}
 	})
 
+	http.HandleFunc("/streamStatus", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("received stream status")
+		params := r.URL.Query()
+		log.Println(params)
+	})
+
 	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("received call")
 		twiml := `<?xml version="1.0" encoding="UTF-8"?>
 		<Response>
-			<Start>
-				<Stream url="wss://91.98.141.13/stream"/>
-			</Start>
+			<Connect>
+				<Stream url="wss://91.98.141.13/stream" statusCallback="http://91.98.141.13/streamStatus">
+			</Connect>
 			<Say>The stream has started.</Say>
 		</Response>`
 		w.Header().Set("Content-Type", "text/xml")
