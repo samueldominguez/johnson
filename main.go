@@ -24,7 +24,7 @@ type TwilioMedia struct {
 	} `json:"media"`
 	Start struct {
 		StreamSid string `json:"streamSid"`
-		CallerID  string `json:"callerId"`
+		CallerID  string `json:"callSid"`
 	} `json:"start"`
 }
 
