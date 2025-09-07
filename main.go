@@ -1,37 +1,96 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
-	"io"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/gorilla/websocket"
 )
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+type TwilioMedia struct {
+	Event     string `json:"event"`
+	StreamSid string `json:"streamSid"`
+	Media     struct {
+		Payload string `json:"payload"`
+	} `json:"media"`
+}
 
 func main() {
 	err := loadEnvFile(".env")
 	if err != nil {
 		panic(err)
 	}
-	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
-		for key, values := range r.URL.Query() {
-			log.Printf("Query param: %s = %v", key, values)
-		}
+	// Read and encode WAV file
+	wavData, err := os.ReadFile("audio.wav")
+	if err != nil {
+		log.Fatal("Error reading WAV:", err)
+	}
+	// Skip WAV header (44 bytes for standard WAV)
+	pcmData := wavData[44:]
+	base64Audio := base64.StdEncoding.EncodeToString(pcmData)
 
-		body, err := io.ReadAll(r.Body)
+	// WebSocket handler
+	http.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("Failed to read body: %v", err)
+			log.Println("WebSocket upgrade error:", err)
 			return
 		}
-		log.Printf("Body length: %d bytes", len(body))
+		defer ws.Close()
 
-		var jsonData any
-		if err := json.Unmarshal(body, &jsonData); err != nil {
-			log.Printf("Failed to decode JSON: %v", err)
-		} else {
-			log.Printf("JSON body: %v", jsonData)
+		for {
+			_, msg, err := ws.ReadMessage()
+			if err != nil {
+				log.Println("WebSocket read error:", err)
+				return
+			}
+
+			// Parse incoming Twilio message
+			var media TwilioMedia
+			if err := json.Unmarshal(msg, &media); err != nil {
+				log.Println("JSON parse error:", err)
+				continue
+			}
+
+			// Respond to media event with pre-recorded audio
+			if media.Event == "media" {
+				response := TwilioMedia{
+					Event:     "media",
+					StreamSid: media.StreamSid,
+					Media: struct {
+						Payload string `json:"payload"`
+					}{Payload: base64Audio},
+				}
+				responseJSON, err := json.Marshal(response)
+				if err != nil {
+					log.Println("JSON marshal error:", err)
+					continue
+				}
+				if err := ws.WriteMessage(websocket.TextMessage, responseJSON); err != nil {
+					log.Println("WebSocket write error:", err)
+					return
+				}
+			}
 		}
+	})
 
-		w.Write([]byte("OK"))
+	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
+		twiml := `<?xml version="1.0" encoding="UTF-8"?>
+		<Response>
+			<Connect>
+				<Stream url="wss://91.98.141.13/stream"/>
+			</Connect>
+		</Response>`
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprint(w, twiml)
 	})
 
 	log.Fatal(http.ListenAndServe("0.0.0.0:5000", nil))
