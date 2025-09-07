@@ -93,7 +93,7 @@ func main() {
 			"type": "conversation.item.create",
 			"item": map[string]interface{}{
 				"type": "message",
-				"role": "user",
+				"role": "assistant",
 				"content": []interface{}{
 					map[string]interface{}{
 						"type": "input_text",
