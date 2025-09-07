@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -85,8 +86,13 @@ func main() {
 
 	http.HandleFunc("/streamStatus", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("received stream status")
-		params := r.URL.Query()
-		log.Println(params)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Println("error reading body", err)
+			return
+		}
+		s := string(body)
+		log.Println("SS:", s)
 		w.WriteHeader(http.StatusOK)
 	})
 
