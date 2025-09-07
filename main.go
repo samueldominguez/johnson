@@ -89,31 +89,31 @@ func main() {
 		log.Println("Sent OpenAI session update")
 
 		// Send initial message
-        initialMessage := map[string]interface{}{
-            "type": "conversation.item.create",
-            "item": map[string]interface{}{
-                "type": "message",
-                "role": "user",
-                "content": []interface{}{
-                    map[string]interface{}{
-                        "type": "input_text",
-                        "text": "Hola! Has llamado al restaurante Loopys, soy una IA que te ayudará a reservar mesa. ¿Cuántas personas son?",
-                    },
-                },
-            },
-        }
-        if err := openAiWs.WriteJSON(initialMessage); err != nil {
-            log.Println("Error sending initial message:", err)
-            return
-        }
-        log.Println("Sent initial message")
+		initialMessage := map[string]interface{}{
+			"type": "conversation.item.create",
+			"item": map[string]interface{}{
+				"type": "message",
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type": "input_text",
+						"text": "Hola! Has llamado al restaurante Loopys, soy una IA que te ayudará a reservar mesa. ¿Cuántas personas son?",
+					},
+				},
+			},
+		}
+		if err := openAiWs.WriteJSON(initialMessage); err != nil {
+			log.Println("Error sending initial message:", err)
+			return
+		}
+		log.Println("Sent initial message")
 
-        // Trigger AI response
-        if err := openAiWs.WriteJSON(map[string]interface{}{"type": "response.create"}); err != nil {
-            log.Println("Error sending response.create:", err)
-            return
-        }
-        log.Println("Sent response.create"
+		// Trigger AI response
+		if err := openAiWs.WriteJSON(map[string]interface{}{"type": "response.create"}); err != nil {
+			log.Println("Error sending response.create:", err)
+			return
+		}
+		log.Println("Sent response.create")
 
 		// Track state
 		var streamSid string
