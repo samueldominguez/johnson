@@ -67,7 +67,7 @@ func main() {
 				"audio": map[string]interface{}{
 					"input": map[string]interface{}{
 						"format": map[string]interface{}{
-							"type": "audio/pcmu",
+							"type": "audio/pcm",
 						},
 						"turn_detection": map[string]interface{}{
 							"type": "server_vad",
@@ -75,7 +75,7 @@ func main() {
 					},
 					"output": map[string]interface{}{
 						"format": map[string]interface{}{
-							"type": "audio/pcmu",
+							"type": "audio/pcm",
 						},
 						"voice": "alloy",
 					},
