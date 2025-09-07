@@ -39,6 +39,7 @@ func main() {
 
 	// WebSocket handler
 	http.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("stream started")
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println("WebSocket upgrade error:", err)
@@ -83,6 +84,7 @@ func main() {
 	})
 
 	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("received call")
 		twiml := `<?xml version="1.0" encoding="UTF-8"?>
 		<Response>
 			<Start>
@@ -90,7 +92,10 @@ func main() {
 			</Start>
 		</Response>`
 		w.Header().Set("Content-Type", "text/xml")
-		fmt.Fprint(w, twiml)
+		_, err := fmt.Fprint(w, twiml)
+		if err != nil {
+			log.Println("error writing twiml response", err)
+		}
 	})
 
 	log.Fatal(http.ListenAndServe("0.0.0.0:5000", nil))
