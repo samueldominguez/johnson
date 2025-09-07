@@ -89,6 +89,12 @@ func main() {
 		}
 		log.Println("Sent OpenAI session update")
 
+		// Trigger AI response
+		if err := openAiWs.WriteJSON(map[string]interface{}{"type": "response.create"}); err != nil {
+			log.Println("Error sending response.create:", err)
+			return
+		}
+
 		// Track state
 		var streamSid string
 		var responseStartTimestamp string
