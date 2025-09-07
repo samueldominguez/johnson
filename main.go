@@ -87,6 +87,7 @@ func main() {
 		log.Println("received stream status")
 		params := r.URL.Query()
 		log.Println(params)
+		w.WriteHeader(http.StatusOK)
 	})
 
 	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
