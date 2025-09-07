@@ -231,6 +231,8 @@ func main() {
 
 	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("Incoming call hit")
+		callerId := r.FormValue("From")
+		log.Println("CALLER ID", callerId)
 		twiml := `<?xml version="1.0" encoding="UTF-8"?>
         <Response>
             <Connect>
