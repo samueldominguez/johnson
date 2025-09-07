@@ -90,6 +90,7 @@ func main() {
 			<Start>
 				<Stream url="wss://91.98.141.13/stream"/>
 			</Start>
+			<Say>The stream has started.</Say>
 		</Response>`
 		w.Header().Set("Content-Type", "text/xml")
 		_, err := fmt.Fprint(w, twiml)
