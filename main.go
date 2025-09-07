@@ -24,6 +24,7 @@ type TwilioMedia struct {
 	} `json:"media"`
 	Start struct {
 		StreamSid string `json:"streamSid"`
+		CallerID  string `json:"callerId"`
 	} `json:"start"`
 }
 
@@ -226,6 +227,7 @@ func main() {
 			case "start":
 				streamSid = twilioMsg.Start.StreamSid
 				log.Println("Stream started, StreamSid:", streamSid)
+				log.Println("KABOOM", twilioMsg.Start.CallerID)
 				responseStartTimestamp = ""
 			case "media":
 				if twilioMsg.Media.Track == "inbound" {
