@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -21,50 +18,27 @@ type TwilioMedia struct {
 	Event     string `json:"event"`
 	StreamSid string `json:"streamSid"`
 	Media     struct {
-		Track   string `json:"track"`
-		Payload string `json:"payload"`
+		Track     string `json:"track"`
+		Payload   string `json:"payload"`
+		Timestamp string `json:"timestamp"`
 	} `json:"media"`
-}
-
-func createWavHeader(dataLength int) []byte {
-	header := make([]byte, 44)
-	copy(header[0:4], []byte("RIFF"))
-	binary.LittleEndian.PutUint32(header[4:8], uint32(36+dataLength)) // File size - 8
-	copy(header[8:12], []byte("WAVE"))
-	copy(header[12:16], []byte("fmt "))
-	binary.LittleEndian.PutUint32(header[16:20], 16)   // fmt chunk size
-	binary.LittleEndian.PutUint16(header[20:22], 7)    // μ-law format
-	binary.LittleEndian.PutUint16(header[22:24], 1)    // Mono
-	binary.LittleEndian.PutUint32(header[24:28], 8000) // Sample rate
-	binary.LittleEndian.PutUint32(header[28:32], 8000) // Byte rate
-	binary.LittleEndian.PutUint16(header[32:34], 1)    // Block align
-	binary.LittleEndian.PutUint16(header[34:36], 8)    // Bits per sample
-	copy(header[36:40], []byte("data"))
-	binary.LittleEndian.PutUint32(header[40:44], uint32(dataLength)) // Data size
-	return header
+	Start struct {
+		StreamSid string `json:"streamSid"`
+	} `json:"start"`
 }
 
 func main() {
 	err := loadEnvFile(".env")
 	if err != nil {
-		panic(err)
+		log.Fatal("Error loading .env:", err)
 	}
-	// Read and encode WAV file
-	wavData, err := os.ReadFile("audio.wav")
-	if err != nil {
-		log.Fatal("Error reading WAV:", err)
+	openAIKey := os.Getenv("OPENAI_API_KEY")
+	if openAIKey == "" {
+		log.Fatal("Missing OPENAI_API_KEY in .env")
 	}
-	// Skip WAV header (44 bytes for standard WAV)
-	pcmData := wavData[44:]
-	base64Audio := base64.StdEncoding.EncodeToString(pcmData)
 
-	// WebSocket handler
 	http.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
-		var audioBuffer []byte // Accumulate μ-law data for this call
-		var audioFile *os.File // File for this call
-		var streamSid string   // Unique identifier for the call
-		log.Println("stream started")
-		log.Println("headers:", r.Header)
+		log.Println("WebSocket /stream hit")
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println("WebSocket upgrade error:", err)
@@ -72,102 +46,185 @@ func main() {
 		}
 		defer ws.Close()
 
+		// Connect to OpenAI Realtime API
+		openAiWs, _, err := websocket.DefaultDialer.Dial("wss://api.openai.com/v1/realtime?model=gpt-realtime&temperature=0.8", http.Header{
+			"Authorization": []string{"Bearer " + openAIKey},
+		})
+		if err != nil {
+			log.Println("OpenAI WebSocket connection error:", err)
+			return
+		}
+		defer openAiWs.Close()
+
+		// Initialize OpenAI session
+		sessionUpdate := map[string]interface{}{
+			"type": "session.update",
+			"session": map[string]interface{}{
+				"type":              "realtime",
+				"model":             "gpt-realtime",
+				"output_modalities": []string{"audio"},
+				"audio": map[string]interface{}{
+					"input": map[string]interface{}{
+						"format": map[string]interface{}{
+							"type": "audio/pcmu",
+						},
+						"turn_detection": map[string]interface{}{
+							"type": "server_vad",
+						},
+					},
+					"output": map[string]interface{}{
+						"format": map[string]interface{}{
+							"type": "audio/pcmu",
+						},
+						"voice": "alloy",
+					},
+				},
+				"instructions": "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested in and offers facts. You have a penchant for dad jokes, owl jokes, and subtle rickrolling. Always stay positive and work in a joke when appropriate.",
+			},
+		}
+		if err := openAiWs.WriteJSON(sessionUpdate); err != nil {
+			log.Println("Error sending OpenAI session update:", err)
+			return
+		}
+		log.Println("Sent OpenAI session update")
+
+		// Track state
+		var streamSid string
+		var responseStartTimestamp string
+		var lastAssistantItem string
+		markQueue := []string{}
+
+		// Handle OpenAI WebSocket messages
+		go func() {
+			for {
+				_, msg, err := openAiWs.ReadMessage()
+				if err != nil {
+					log.Println("OpenAI WebSocket read error:", err)
+					return
+				}
+				var openAiMsg map[string]interface{}
+				if err := json.Unmarshal(msg, &openAiMsg); err != nil {
+					log.Println("OpenAI JSON parse error:", err)
+					continue
+				}
+				eventType, _ := openAiMsg["type"].(string)
+				log.Println("OpenAI event:", eventType)
+
+				if eventType == "response.output_audio.delta" {
+					delta, _ := openAiMsg["delta"].(string)
+					if delta != "" {
+						audioDelta := map[string]interface{}{
+							"event":     "media",
+							"streamSid": streamSid,
+							"media": map[string]string{
+								"payload": delta,
+							},
+						}
+						if err := ws.WriteJSON(audioDelta); err != nil {
+							log.Println("WebSocket write error:", err)
+							return
+						}
+						log.Println("Sent AI audio to Twilio")
+						if responseStartTimestamp == "" {
+							responseStartTimestamp = openAiMsg["timestamp"].(string)
+							log.Println("Set response start timestamp:", responseStartTimestamp)
+						}
+						if itemID, ok := openAiMsg["item_id"].(string); ok {
+							lastAssistantItem = itemID
+						}
+						// Send mark
+						markEvent := map[string]interface{}{
+							"event":     "mark",
+							"streamSid": streamSid,
+							"mark": map[string]string{
+								"name": "responsePart",
+							},
+						}
+						ws.WriteJSON(markEvent)
+						markQueue = append(markQueue, "responsePart")
+					}
+				} else if eventType == "input_audio_buffer.speech_started" {
+					if len(markQueue) > 0 && responseStartTimestamp != "" && lastAssistantItem != "" {
+						truncateEvent := map[string]interface{}{
+							"type":          "conversation.item.truncate",
+							"item_id":       lastAssistantItem,
+							"content_index": 0,
+							"audio_end_ms":  0, // Simplified; adjust if needed
+						}
+						openAiWs.WriteJSON(truncateEvent)
+						ws.WriteJSON(map[string]interface{}{
+							"event":     "clear",
+							"streamSid": streamSid,
+						})
+						markQueue = []string{}
+						lastAssistantItem = ""
+						responseStartTimestamp = ""
+					}
+				}
+			}
+		}()
+
+		// Handle Twilio WebSocket messages
 		for {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
-				log.Println("WebSocket read error:", err)
-				// Write WAV header and data before closing
-				if len(audioBuffer) > 0 && audioFile != nil {
-					header := createWavHeader(len(audioBuffer))
-					if _, err := audioFile.Write(header); err != nil {
-						log.Println("Error writing WAV header:", err)
-					}
-					if _, err := audioFile.Write(audioBuffer); err != nil {
-						log.Println("Error writing WAV data:", err)
-					}
-					audioFile.Close()
-					log.Printf("Saved audio to call_%s.wav", streamSid)
-				}
+				log.Println("Twilio WebSocket read error:", err)
 				return
 			}
-
-			log.Println(string(msg))
-			// Parse incoming Twilio message
 			var twilioMsg TwilioMedia
 			if err := json.Unmarshal(msg, &twilioMsg); err != nil {
 				log.Println("JSON parse error:", err)
 				continue
 			}
-			if twilioMsg.Event == "start" {
-				streamSid = twilioMsg.StreamSid
-				audioFile, err = os.Create("call_" + streamSid + ".wav")
-				if err != nil {
-					log.Println("Error creating WAV file:", err)
-					return
-				}
-				audioBuffer = nil // Reset buffer for new call
-				log.Printf("Created file for call_%s.wav", streamSid)
-			}
+			log.Println("Twilio event:", twilioMsg.Event)
 
-			// Save inbound audio from "media" event
-			if twilioMsg.Event == "media" && twilioMsg.Media.Track == "inbound" {
-				audioData, err := base64.StdEncoding.DecodeString(twilioMsg.Media.Payload)
-				if err != nil {
-					log.Println("Base64 decode error:", err)
-					continue
+			switch twilioMsg.Event {
+			case "start":
+				streamSid = twilioMsg.Start.StreamSid
+				log.Println("Stream started, StreamSid:", streamSid)
+				responseStartTimestamp = ""
+			case "media":
+				if twilioMsg.Media.Track == "inbound" {
+					audioAppend := map[string]interface{}{
+						"type":  "input_audio_buffer.append",
+						"audio": twilioMsg.Media.Payload,
+					}
+					if err := openAiWs.WriteJSON(audioAppend); err != nil {
+						log.Println("Error sending audio to OpenAI:", err)
+						continue
+					}
+					log.Println("Sent audio to OpenAI")
 				}
-				audioBuffer = append(audioBuffer, audioData...)
-				log.Println("Appended audio chunk, total length:", len(audioBuffer))
-			}
-
-			if twilioMsg.Event == "start" {
-				response := map[string]interface{}{
-					"event":     "media",
-					"streamSid": twilioMsg.StreamSid,
-					"media": map[string]string{
-						"payload": base64Audio,
-					},
+			case "mark":
+				if len(markQueue) > 0 {
+					markQueue = markQueue[1:]
 				}
-				responseJSON, err := json.Marshal(response)
-				if err != nil {
-					log.Println("JSON marshal error:", err)
-					continue
-				}
-				if err := ws.WriteMessage(websocket.TextMessage, responseJSON); err != nil {
-					log.Println("WebSocket write error:", err)
-					return
-				}
-				log.Println("Sent μ-law audio response")
 			}
 		}
-	})
-
-	http.HandleFunc("/streamStatus", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("received stream status")
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Println("error reading body", err)
-			return
-		}
-		s := string(body)
-		log.Println("SS:", s)
-		w.WriteHeader(http.StatusOK)
 	})
 
 	http.HandleFunc("/incomingCall", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("received call")
+		log.Println("Incoming call hit")
 		twiml := `<?xml version="1.0" encoding="UTF-8"?>
-		<Response>
-			<Connect>
-				<Stream url="wss://unminimizer.com/stream" statusCallback="https://unminimizer.com/streamStatus" />
-			</Connect>
-			<Say>The stream has started.</Say>
-		</Response>`
+        <Response>
+            <Connect>
+                <Stream url="wss://unminimizer.com/stream" statusCallback="https://unminimizer.com/streamStatus"/>
+            </Connect>
+            <Say>The stream has started.</Say>
+        </Response>`
 		w.Header().Set("Content-Type", "text/xml")
-		_, err := fmt.Fprint(w, twiml)
+		w.Write([]byte(twiml))
+	})
+
+	http.HandleFunc("/streamStatus", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Received stream status")
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Println("error writing twiml response", err)
+			log.Println("Error reading stream status body:", err)
+			return
 		}
+		log.Println("Stream Status:", string(body))
+		w.WriteHeader(http.StatusOK)
 	})
 
 	log.Fatal(http.ListenAndServe("0.0.0.0:5000", nil))
