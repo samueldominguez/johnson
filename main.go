@@ -56,6 +56,7 @@ func main() {
 				return
 			}
 
+			log.Println(string(msg))
 			// Parse incoming Twilio message
 			var media TwilioMedia
 			if err := json.Unmarshal(msg, &media); err != nil {
