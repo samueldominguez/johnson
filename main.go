@@ -80,7 +80,7 @@ func main() {
 						"voice": "alloy",
 					},
 				},
-				"instructions": "Eres un asistente IA que ayuda a las personas a reservar mesa en un restaurante. Limítate a hablar solo de este tema, para el restaurante Loopys. Hablas en castellano.",
+				"instructions": "Eres un asistente IA que ayuda a las personas a reservar mesa en un restaurante. Limítate a hablar solo de este tema, para el restaurante Loopys. Hablas en castellano. Tu primer mensaje siempre será el siguiente: Hola! Has llamado al restaurante Loopys, soy una IA que te ayudará a reservar mesa. ¿Cuántas personas son?",
 			},
 		}
 		if err := openAiWs.WriteJSON(sessionUpdate); err != nil {
@@ -88,33 +88,6 @@ func main() {
 			return
 		}
 		log.Println("Sent OpenAI session update")
-
-		// Send initial message
-		initialMessage := map[string]interface{}{
-			"type": "conversation.item.create",
-			"item": map[string]interface{}{
-				"type": "message",
-				"role": "assistant",
-				"content": []interface{}{
-					map[string]interface{}{
-						"type": "input_text",
-						"text": "Hola! Has llamado al restaurante Loopys, soy una IA que te ayudará a reservar mesa. ¿Cuántas personas son?",
-					},
-				},
-			},
-		}
-		if err := openAiWs.WriteJSON(initialMessage); err != nil {
-			log.Println("Error sending initial message:", err)
-			return
-		}
-		log.Println("Sent initial message")
-
-		// Trigger AI response
-		if err := openAiWs.WriteJSON(map[string]interface{}{"type": "response.create"}); err != nil {
-			log.Println("Error sending response.create:", err)
-			return
-		}
-		log.Println("Sent response.create")
 
 		// Track state
 		var streamSid string
