@@ -101,7 +101,7 @@ func main() {
 		twiml := `<?xml version="1.0" encoding="UTF-8"?>
 		<Response>
 			<Connect>
-				<Stream url="wss://91.98.141.13/stream" statusCallback="http://91.98.141.13/streamStatus" />
+				<Stream url="wss://unminimizer.com/stream" statusCallback="https://unminimizer.com/streamStatus" />
 			</Connect>
 			<Say>The stream has started.</Say>
 		</Response>`
