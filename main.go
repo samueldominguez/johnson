@@ -111,54 +111,71 @@ func main() {
 				log.Println("OpenAI event:", eventType)
 
 				if eventType == "response.output_audio.delta" {
-					delta, _ := openAiMsg["delta"].(string)
-					if delta != "" {
-						audioDelta := map[string]interface{}{
-							"event":     "media",
-							"streamSid": streamSid,
-							"media": map[string]string{
-								"payload": delta,
-							},
-						}
-						if err := ws.WriteJSON(audioDelta); err != nil {
-							log.Println("WebSocket write error:", err)
-							return
-						}
-						log.Println("Sent AI audio to Twilio")
-						if responseStartTimestamp == "" {
-							responseStartTimestamp = openAiMsg["timestamp"].(string)
-							log.Println("Set response start timestamp:", responseStartTimestamp)
-						}
-						if itemID, ok := openAiMsg["item_id"].(string); ok {
-							lastAssistantItem = itemID
-						}
-						// Send mark
-						markEvent := map[string]interface{}{
-							"event":     "mark",
-							"streamSid": streamSid,
-							"mark": map[string]string{
-								"name": "responsePart",
-							},
-						}
-						ws.WriteJSON(markEvent)
-						markQueue = append(markQueue, "responsePart")
+					delta, ok := openAiMsg["delta"].(string)
+					if !ok || delta == "" {
+						log.Println("Invalid or empty audio delta")
+						continue
 					}
+					audioDelta := map[string]interface{}{
+						"event":     "media",
+						"streamSid": streamSid,
+						"media": map[string]string{
+							"payload": delta,
+						},
+					}
+					if err := ws.WriteJSON(audioDelta); err != nil {
+						log.Println("WebSocket write error:", err)
+						return
+					}
+					log.Println("Sent AI audio to Twilio")
+
+					if responseStartTimestamp == "" {
+						if ts, ok := openAiMsg["timestamp"].(string); ok {
+							responseStartTimestamp = ts
+							log.Println("Set response start timestamp:", responseStartTimestamp)
+						} else {
+							log.Println("No timestamp in audio delta, using default")
+						}
+					}
+					if itemID, ok := openAiMsg["item_id"].(string); ok {
+						lastAssistantItem = itemID
+					}
+					// Send mark
+					markEvent := map[string]interface{}{
+						"event":     "mark",
+						"streamSid": streamSid,
+						"mark": map[string]string{
+							"name": "responsePart",
+						},
+					}
+					if err := ws.WriteJSON(markEvent); err != nil {
+						log.Println("WebSocket mark write error:", err)
+						return
+					}
+					markQueue = append(markQueue, "responsePart")
 				} else if eventType == "input_audio_buffer.speech_started" {
-					if len(markQueue) > 0 && responseStartTimestamp != "" && lastAssistantItem != "" {
+					if len(markQueue) > 0 && lastAssistantItem != "" {
 						truncateEvent := map[string]interface{}{
 							"type":          "conversation.item.truncate",
 							"item_id":       lastAssistantItem,
 							"content_index": 0,
-							"audio_end_ms":  0, // Simplified; adjust if needed
+							"audio_end_ms":  0,
 						}
-						openAiWs.WriteJSON(truncateEvent)
-						ws.WriteJSON(map[string]interface{}{
+						if err := openAiWs.WriteJSON(truncateEvent); err != nil {
+							log.Println("Error sending truncate event:", err)
+							continue
+						}
+						if err := ws.WriteJSON(map[string]interface{}{
 							"event":     "clear",
 							"streamSid": streamSid,
-						})
+						}); err != nil {
+							log.Println("WebSocket clear write error:", err)
+							return
+						}
 						markQueue = []string{}
 						lastAssistantItem = ""
 						responseStartTimestamp = ""
+						log.Println("Sent truncate and clear events")
 					}
 				}
 			}
@@ -198,6 +215,7 @@ func main() {
 			case "mark":
 				if len(markQueue) > 0 {
 					markQueue = markQueue[1:]
+					log.Println("Processed mark, queue length:", len(markQueue))
 				}
 			}
 		}
